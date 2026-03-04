@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pose Runner - Subway Surfers dengan Pose Recognition</title>
+  <meta name="description" content="Mainkan game gaya Subway Surfers langsung dari browser dengan kontrol pose recognition berbasis Python backend." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="bg-grid"></div>
+  <div class="bg-orb orb-a"></div>
+  <div class="bg-orb orb-b"></div>
+  <div class="cursor-glow" aria-hidden="true"></div>
+
+  <header class="site-header">
+    <a href="#" class="brand">POSE RUNNER</a>
+    <a href="game.html" class="header-cta">Mainkan</a>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="hero-grid">
+        <div class="hero-copy reveal">
+          <p class="eyebrow">Subway Surfers x Computer Vision</p>
+          <h1>Gerakkan badanmu,<br />bukan tombol keyboard</h1>
+          <p class="lead">
+            Website ini menghadirkan pengalaman bermain seperti Subway Surfers dengan kontrol pose recognition.
+            Kamera membaca gerakan tubuhmu untuk berlari, lompat, dan menghindar secara real-time.
+          </p>
+          <div class="hero-actions">
+            <a href="game.html" class="btn btn-primary">Mulai Bermain</a>
+            <a href="#cara-kerja" class="btn btn-outline">Lihat Cara Kerja</a>
+          </div>
+          <ul class="stats">
+            <li><strong>Real-time</strong><span>Pose Detection</span></li>
+            <li><strong>Web-based</strong><span>Tanpa Install Game</span></li>
+            <li><strong>Python Ready</strong><span>Integrasi Backend</span></li>
+          </ul>
+        </div>
+
+        <aside class="hero-visual reveal" aria-label="Visualisasi sistem pose recognition">
+          <div class="scanner">
+            <span class="scan-ring ring-a"></span>
+            <span class="scan-ring ring-b"></span>
+            <span class="scan-ring ring-c"></span>
+            <span class="scan-dot"></span>
+          </div>
+          <div class="scan-status">
+            <p>Tracking Status</p>
+            <strong>POSE LOCKED</strong>
+            <small>Latency 28ms | FPS 30</small>
+          </div>
+          <div class="meters">
+            <div class="meter-row">
+              <span>Lompat</span>
+              <div class="meter-track"><b class="meter-fill" data-level="88"></b></div>
+            </div>
+            <div class="meter-row">
+              <span>Geser Kiri</span>
+              <div class="meter-track"><b class="meter-fill" data-level="73"></b></div>
+            </div>
+            <div class="meter-row">
+              <span>Geser Kanan</span>
+              <div class="meter-track"><b class="meter-fill" data-level="79"></b></div>
+            </div>
+            <div class="meter-row">
+              <span>Slide</span>
+              <div class="meter-track"><b class="meter-fill" data-level="66"></b></div>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <section id="cara-kerja" class="features">
+      <article class="card reveal">
+        <h2>1. Buka Kamera</h2>
+        <p>Sistem mengambil frame kamera dan mengirim data posisi tubuh ke engine pengenal pose.</p>
+      </article>
+      <article class="card reveal">
+        <h2>2. Deteksi Gerakan</h2>
+        <p>Pose seperti condong kiri, condong kanan, atau lompatan diterjemahkan jadi aksi karakter.</p>
+      </article>
+      <article class="card reveal">
+        <h2>3. Mainkan Game</h2>
+        <p>Kontrol game terasa lebih imersif karena kamu bermain dengan gerakan tubuh secara langsung.</p>
+      </article>
+    </section>
+
+    <section class="pose-map reveal">
+      <h2>Pemetaan Pose ke Kontrol</h2>
+      <div class="pose-grid">
+        <div class="pose-item"><span>Angkat tangan</span><b>Lompat</b></div>
+        <div class="pose-item"><span>Condong kiri</span><b>Geser kiri</b></div>
+        <div class="pose-item"><span>Condong kanan</span><b>Geser kanan</b></div>
+        <div class="pose-item"><span>Tunduk</span><b>Slide</b></div>
+      </div>
+      <a href="game.html" class="btn btn-primary wide">Ke Halaman Permainan</a>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p>Pose Runner | Landing page frontend (HTML, CSS, JS) siap dihubungkan ke backend Python.</p>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
