@@ -38,3 +38,28 @@ Saat startup pertama, backend akan mengunduh model `pose_landmarker_full.task` k
 Catatan:
 - Fokuskan jendela browser/game agar input keyboard dari `pyautogui` masuk ke game.
 - Jika `pyautogui` belum ter-install atau gagal di environment tertentu, landmark tetap berjalan tapi kontrol keyboard nonaktif.
+
+## Training Deep Learning (LSTM)
+
+Pipeline training ini menggunakan:
+- Landmark pose dari MediaPipe (tiap gambar jadi urutan 33 titik)
+- Model `LSTM` berbasis PyTorch
+- Split data `train/val/test` secara stratified per kelas
+
+### 1) Split dataset
+
+```bash
+python split_dataset.py --input-dir dataset --output-dir dataset_split --train-ratio 0.7 --val-ratio 0.15 --test-ratio 0.15 --seed 42 --overwrite
+```
+
+### 2) Training + evaluasi
+
+```bash
+python train_lstm_pose.py --data-dir dataset_split --epochs 30 --batch-size 16 --learning-rate 0.001 --output-dir models/lstm_pose
+```
+
+Output training tersimpan di `models/lstm_pose/`:
+- `best_model.pth`
+- `metrics.json`
+- `classification_report.txt`
+- `confusion_matrix_test.png`

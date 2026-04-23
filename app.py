@@ -1,7 +1,9 @@
 import atexit
+import json
 import threading
 import time
 import urllib.request
+from collections import deque
 from pathlib import Path
 
 import cv2
@@ -30,17 +32,54 @@ except Exception as py_exc:
     except Exception as pd_exc:
         keyboard_error = f"pyautogui: {py_exc}; pydirectinput: {pd_exc}"
 
+torch_error = None
+try:
+    import torch
+    import torch.nn as nn
+except Exception as torch_exc:
+    torch = None
+    nn = None
+    torch_error = str(torch_exc)
+
 
 BASE_DIR = Path(__file__).resolve().parent
 MODEL_DIR = BASE_DIR / "models"
 POSE_MODEL_PATH = MODEL_DIR / "pose_landmarker_full.task"
-APP_VERSION = "pose-runner-backend-2026-03-02.1"
+LSTM_MODEL_PATH = MODEL_DIR / "lstm_pose" / "best_model.pth"
+LSTM_METRICS_PATH = MODEL_DIR / "lstm_pose" / "metrics.json"
+APP_VERSION = "pose-runner-backend-2026-04-23.1"
 POSE_MODEL_URL = (
     "https://storage.googleapis.com/mediapipe-models/pose_landmarker/"
     "pose_landmarker_full/float16/latest/pose_landmarker_full.task"
 )
 
 app = Flask(__name__, static_folder=str(BASE_DIR), static_url_path="")
+
+
+if nn is not None:
+    class PoseLSTM(nn.Module):
+        def __init__(self, input_size: int, hidden_size: int, num_layers: int, num_classes: int):
+            super().__init__()
+            self.lstm = nn.LSTM(
+                input_size=input_size,
+                hidden_size=hidden_size,
+                num_layers=num_layers,
+                batch_first=True,
+                dropout=0.2 if num_layers > 1 else 0.0,
+            )
+            self.fc1 = nn.Linear(hidden_size, 64)
+            self.relu = nn.ReLU()
+            self.dropout = nn.Dropout(0.2)
+            self.fc2 = nn.Linear(64, num_classes)
+
+        def forward(self, x):
+            out, _ = self.lstm(x)
+            out = out[:, -1, :]
+            out = self.fc1(out)
+            out = self.relu(out)
+            out = self.dropout(out)
+            out = self.fc2(out)
+            return out
 
 
 class PoseEngine:
@@ -50,23 +89,43 @@ class PoseEngine:
         self.lock = threading.Lock()
         self.pause_key = "esc"
         self.last_press = {"up": 0.0, "down": 0.0, "left": 0.0, "right": 0.0, self.pause_key: 0.0}
-        self.cooldown = 0.55
+        self.cooldown = 0.25
         self.pause_cooldown = 0.9
         self.clap_is_closed = False
-        self.neutral_hip_x = None
-        self.neutral_hip_y = None
-        self.neutral_torso = None
-        self.neutral_shoulder_width = None
         self.controls_enabled = keyboard_controller is not None
         self.controls_backend = keyboard_backend
         self.controls_error = keyboard_error
         self.init_error = None
+        self.model_error = None
 
         self.landmarker = None
         self.pose_connections = []
         self.pose_enum = None
+        # MediaPipe Pose landmark indices (stabil antar model pose).
+        self.pose_idx = {
+            "LEFT_SHOULDER": 11,
+            "RIGHT_SHOULDER": 12,
+            "LEFT_WRIST": 15,
+            "RIGHT_WRIST": 16,
+            "LEFT_HIP": 23,
+            "RIGHT_HIP": 24,
+        }
+        self.pose_classifier = None
+        self.class_names = ["down", "idle", "left", "right", "up"]
+        self.action_conf_threshold = 0.80
+        self.non_idle_margin_vs_idle = 0.12
+        self.down_action_conf_threshold = 0.88
+        self.down_margin_vs_idle = 0.20
+        self.down_min_stable_frames = 4
+        self.min_stable_frames = 3
+        self.prob_smoother = deque(maxlen=5)
+        self.last_pred_label = "idle"
+        self.last_pred_conf = 0.0
+        self.stable_label = "idle"
+        self.stable_count = 0
 
         self._init_landmarker()
+        self._init_pose_classifier()
 
     def _ensure_pose_model(self):
         MODEL_DIR.mkdir(parents=True, exist_ok=True)
@@ -91,9 +150,41 @@ class PoseEngine:
             )
             self.landmarker = vision.PoseLandmarker.create_from_options(options)
             self.pose_connections = vision.PoseLandmarksConnections.POSE_LANDMARKS
-            self.pose_enum = vision.PoseLandmark
+            self.pose_enum = getattr(vision, "PoseLandmark", None)
         except Exception as exc:
             self.init_error = f"Inisialisasi MediaPipe gagal: {exc}"
+
+    def _init_pose_classifier(self):
+        if torch is None or nn is None:
+            self.model_error = f"PyTorch tidak tersedia: {torch_error}"
+            return
+        if not LSTM_MODEL_PATH.exists():
+            self.model_error = f"Model LSTM tidak ditemukan: {LSTM_MODEL_PATH}"
+            return
+
+        if LSTM_METRICS_PATH.exists():
+            try:
+                metrics = json.loads(LSTM_METRICS_PATH.read_text(encoding="utf-8"))
+                class_names = metrics.get("class_names")
+                if isinstance(class_names, list) and class_names:
+                    self.class_names = [str(name) for name in class_names]
+            except Exception:
+                # Tetap lanjut dengan class default jika metrics gagal dibaca.
+                pass
+
+        try:
+            model = PoseLSTM(
+                input_size=4,
+                hidden_size=96,
+                num_layers=2,
+                num_classes=len(self.class_names),
+            )
+            state_dict = torch.load(str(LSTM_MODEL_PATH), map_location="cpu")
+            model.load_state_dict(state_dict)
+            model.eval()
+            self.pose_classifier = model
+        except Exception as exc:
+            self.model_error = f"Gagal load model LSTM: {exc}"
 
     def _open_camera(self):
         if self.cap is not None and self.cap.isOpened():
@@ -169,81 +260,92 @@ class PoseEngine:
                 color = (60, 255, 120)
             cv2.circle(frame, (x, y), 4, color, -1)
 
-    def _get_body_metrics(self, landmarks):
-        left_shoulder = landmarks[int(self.pose_enum.LEFT_SHOULDER)]
-        right_shoulder = landmarks[int(self.pose_enum.RIGHT_SHOULDER)]
-        left_hip = landmarks[int(self.pose_enum.LEFT_HIP)]
-        right_hip = landmarks[int(self.pose_enum.RIGHT_HIP)]
+    def _landmarks_to_sequence(self, landmarks):
+        if len(landmarks) < 25:
+            return None
 
-        shoulder_center_x = (left_shoulder.x + right_shoulder.x) / 2.0
-        shoulder_center_y = (left_shoulder.y + right_shoulder.y) / 2.0
-        hip_center_x = (left_hip.x + right_hip.x) / 2.0
-        hip_center_y = (left_hip.y + right_hip.y) / 2.0
-        shoulder_width = abs(left_shoulder.x - right_shoulder.x)
-        torso_height = max(hip_center_y - shoulder_center_y, 0.12)
-
-        return {
-            "shoulder_center_x": shoulder_center_x,
-            "shoulder_center_y": shoulder_center_y,
-            "hip_center_x": hip_center_x,
-            "hip_center_y": hip_center_y,
-            "shoulder_width": shoulder_width,
-            "torso_height": torso_height,
-        }
-
-    def _update_neutral_pose(self, metrics, alpha: float):
-        if self.neutral_hip_x is None:
-            self.neutral_hip_x = metrics["hip_center_x"]
-            self.neutral_hip_y = metrics["hip_center_y"]
-            self.neutral_torso = metrics["torso_height"]
-            self.neutral_shoulder_width = metrics["shoulder_width"]
-            return
-
-        self.neutral_hip_x = (1.0 - alpha) * self.neutral_hip_x + alpha * metrics["hip_center_x"]
-        self.neutral_hip_y = (1.0 - alpha) * self.neutral_hip_y + alpha * metrics["hip_center_y"]
-        self.neutral_torso = (1.0 - alpha) * self.neutral_torso + alpha * metrics["torso_height"]
-        self.neutral_shoulder_width = (
-            (1.0 - alpha) * self.neutral_shoulder_width + alpha * metrics["shoulder_width"]
+        seq = np.array(
+            [
+                [lm.x, lm.y, lm.z, getattr(lm, "visibility", 1.0)]
+                for lm in landmarks
+            ],
+            dtype=np.float32,
         )
+        if seq.shape != (33, 4):
+            return None
+
+        # Wajib sama seperti preprocessing training.
+        hip_center = (seq[23, :3] + seq[24, :3]) / 2.0
+        shoulder_width = np.linalg.norm(seq[11, :3] - seq[12, :3])
+        scale = max(float(shoulder_width), 1e-6)
+        seq[:, :3] = (seq[:, :3] - hip_center) / scale
+        return seq
 
     def _extract_action(self, landmarks):
-        metrics = self._get_body_metrics(landmarks)
-        self._update_neutral_pose(metrics, alpha=0.14 if self.neutral_hip_x is None else 0.02)
+        if self.pose_classifier is None or torch is None:
+            return "none", {"label": "model_off", "conf": 0.0}
 
-        dx = metrics["hip_center_x"] - self.neutral_hip_x
-        dy = metrics["hip_center_y"] - self.neutral_hip_y
-        torso_ref = max(self.neutral_torso or metrics["torso_height"], 0.12)
-        shoulder_ref = max(self.neutral_shoulder_width or metrics["shoulder_width"], 0.14)
+        seq = self._landmarks_to_sequence(landmarks)
+        if seq is None:
+            return "none", {"label": "invalid_landmark", "conf": 0.0}
 
-        left_right_threshold = max(0.16 * shoulder_ref, 0.022)
-        jump_threshold = max(0.20 * torso_ref, 0.032)
-        crouch_threshold = max(0.18 * torso_ref, 0.032)
+        with torch.no_grad():
+            tensor = torch.from_numpy(seq).unsqueeze(0)  # (1, 33, 4)
+            logits = self.pose_classifier(tensor)
+            probs = torch.softmax(logits, dim=1).cpu().numpy()[0]
+
+        self.prob_smoother.append(probs)
+        avg_probs = np.mean(np.stack(self.prob_smoother), axis=0)
+        pred_idx = int(np.argmax(avg_probs))
+        pred_label = self.class_names[pred_idx]
+        pred_conf = float(avg_probs[pred_idx])
+        idle_idx = self.class_names.index("idle") if "idle" in self.class_names else None
+        idle_conf = float(avg_probs[idle_idx]) if idle_idx is not None else 0.0
+        self.last_pred_label = pred_label
+        self.last_pred_conf = pred_conf
+
+        if pred_label == self.stable_label:
+            self.stable_count += 1
+        else:
+            self.stable_label = pred_label
+            self.stable_count = 1
 
         action = "none"
-        if dy < -jump_threshold:
-            action = "up"
-        elif dy > crouch_threshold:
-            action = "down"
-        elif dx > left_right_threshold:
-            action = "right"
-        elif dx < -left_right_threshold:
-            action = "left"
+        if pred_label != "idle":
+            required_conf = self.action_conf_threshold
+            required_margin = self.non_idle_margin_vs_idle
+            required_stable = self.min_stable_frames
 
-        if action == "none":
-            # Keep baseline adaptive only when user is in neutral state.
-            self._update_neutral_pose(metrics, alpha=0.06)
+            # Kelas "down" dibuat lebih ketat karena sering overlap dengan idle.
+            if pred_label == "down":
+                required_conf = self.down_action_conf_threshold
+                required_margin = self.down_margin_vs_idle
+                required_stable = self.down_min_stable_frames
 
-        return action, {"dx": dx, "dy": dy}
+            is_confident = pred_conf >= required_conf
+            beats_idle = (pred_conf - idle_conf) >= required_margin
+            is_stable = self.stable_count >= required_stable
+            if is_confident and beats_idle and is_stable:
+                action = pred_label
+
+        if pred_conf < 0.45:
+            action = "none"
+
+        return action, {"label": pred_label, "conf": pred_conf}
 
     def _is_visible(self, landmark, min_visibility: float = 0.5) -> bool:
         visibility = getattr(landmark, "visibility", 1.0)
         return visibility >= min_visibility
 
     def _detect_clap_event(self, landmarks) -> bool:
-        left_wrist = landmarks[int(self.pose_enum.LEFT_WRIST)]
-        right_wrist = landmarks[int(self.pose_enum.RIGHT_WRIST)]
-        left_shoulder = landmarks[int(self.pose_enum.LEFT_SHOULDER)]
-        right_shoulder = landmarks[int(self.pose_enum.RIGHT_SHOULDER)]
+        if len(landmarks) <= self.pose_idx["RIGHT_HIP"]:
+            self.clap_is_closed = False
+            return False
+
+        left_wrist = landmarks[self.pose_idx["LEFT_WRIST"]]
+        right_wrist = landmarks[self.pose_idx["RIGHT_WRIST"]]
+        left_shoulder = landmarks[self.pose_idx["LEFT_SHOULDER"]]
+        right_shoulder = landmarks[self.pose_idx["RIGHT_SHOULDER"]]
 
         if not all(
             (
@@ -298,7 +400,7 @@ class PoseEngine:
             landmarks = self._detect_landmarks(rgb)
             action = "none"
             clap_event = False
-            debug = {"dx": 0.0, "dy": 0.0}
+            debug = {"label": "idle", "conf": 0.0}
 
             if landmarks is not None:
                 self._draw_landmarks(frame, landmarks)
@@ -310,6 +412,7 @@ class PoseEngine:
                     self._press_key(self.pause_key, time.time(), cooldown=self.pause_cooldown)
             else:
                 self.clap_is_closed = False
+                self.prob_smoother.clear()
 
             cv2.putText(
                 frame,
@@ -360,7 +463,7 @@ class PoseEngine:
             )
             cv2.putText(
                 frame,
-                f"Body Shift dx:{debug['dx']:+.3f} dy:{debug['dy']:+.3f}",
+                f"LSTM: {debug['label']} ({debug['conf']:.2f})",
                 (18, 132),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.65,
@@ -374,6 +477,17 @@ class PoseEngine:
                     frame,
                     self.init_error,
                     (18, frame.shape[0] - 22),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.55,
+                    (0, 170, 255),
+                    2,
+                    cv2.LINE_AA,
+                )
+            if self.model_error:
+                cv2.putText(
+                    frame,
+                    self.model_error,
+                    (18, frame.shape[0] - 48),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.55,
                     (0, 170, 255),
@@ -423,6 +537,16 @@ def health():
             "controls_backend": engine.controls_backend,
             "controls_error": engine.controls_error,
             "landmarker_ready": engine.landmarker is not None,
+            "lstm_model_ready": engine.pose_classifier is not None,
+            "lstm_model_path": str(LSTM_MODEL_PATH),
+            "lstm_class_names": engine.class_names,
+            "lstm_conf_threshold": engine.action_conf_threshold,
+            "lstm_non_idle_margin_vs_idle": engine.non_idle_margin_vs_idle,
+            "lstm_down_conf_threshold": engine.down_action_conf_threshold,
+            "lstm_down_margin_vs_idle": engine.down_margin_vs_idle,
+            "lstm_down_min_stable_frames": engine.down_min_stable_frames,
+            "lstm_min_stable_frames": engine.min_stable_frames,
+            "lstm_model_error": engine.model_error,
             "camera_index": engine.camera_index,
             "pause_key": engine.pause_key,
             "error": engine.init_error,

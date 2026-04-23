@@ -1,0 +1,26 @@
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local datasets (upload later)
+dataset/
+data_split/
+dataset_split/
+
+# Trained artifacts
+models/
+*.h5
+*.keras
+*.pt
+*.pth
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
