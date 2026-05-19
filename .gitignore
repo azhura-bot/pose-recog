@@ -11,6 +11,7 @@ env/
 dataset/
 data_split/
 dataset_split/
+dataset_aug/
 
 # Trained artifacts
 models/
