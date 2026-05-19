@@ -101,6 +101,8 @@ class PoseEngine:
 
         self.landmarker = None
         self.pose_connections = []
+        self.render_connections = []
+        self.render_indices = {11, 12, 13, 14, 15, 16, 23, 24, 25, 26}
         self.pose_enum = None
         # MediaPipe Pose landmark indices (stabil antar model pose).
         self.pose_idx = {
@@ -123,11 +125,18 @@ class PoseEngine:
         self.side_margin_vs_idle = 0.26
         self.side_min_stable_frames = 3
         self.prob_smoother = deque(maxlen=3)
-        self.detect_width = 384
+        self.detect_width = 320
+        self.stream_width = 640
+        self.stream_height = 360
+        self.stream_jpeg_quality = 65
+        self.stream_frame_interval = 0.04
         self.last_pred_label = "idle"
         self.last_pred_conf = 0.0
         self.stable_label = "idle"
         self.stable_count = 0
+        self.latched_action = "none"
+        self.frame_count = 0
+        self.last_landmarks = None
 
         self._init_landmarker()
         self._init_pose_classifier()
@@ -155,6 +164,11 @@ class PoseEngine:
             )
             self.landmarker = vision.PoseLandmarker.create_from_options(options)
             self.pose_connections = vision.PoseLandmarksConnections.POSE_LANDMARKS
+            self.render_connections = [
+                conn
+                for conn in self.pose_connections
+                if conn.start in self.render_indices and conn.end in self.render_indices
+            ]
             self.pose_enum = getattr(vision, "PoseLandmark", None)
         except Exception as exc:
             self.init_error = f"Inisialisasi MediaPipe gagal: {exc}"
@@ -200,8 +214,9 @@ class PoseEngine:
             cap = cv2.VideoCapture(self.camera_index)
 
         if cap.isOpened():
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 960)
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 540)
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.stream_width)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.stream_height)
+            cap.set(cv2.CAP_PROP_FPS, 30)
             cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
             self.cap = cap
         else:
@@ -217,7 +232,7 @@ class PoseEngine:
         self.last_press[key] = now
 
     def _make_error_frame(self, message: str) -> bytes:
-        frame = np.zeros((540, 960, 3), dtype=np.uint8)
+        frame = np.zeros((self.stream_height, self.stream_width, 3), dtype=np.uint8)
         cv2.putText(
             frame,
             "Pose stream error",
@@ -246,16 +261,16 @@ class PoseEngine:
     def _draw_landmarks(self, frame, landmarks):
         height, width = frame.shape[:2]
 
-        for connection in self.pose_connections:
+        for connection in self.render_connections:
             start_idx, end_idx = connection.start, connection.end
-            if start_idx >= len(landmarks) or end_idx >= len(landmarks):
-                continue
-
             p1 = (int(landmarks[start_idx].x * width), int(landmarks[start_idx].y * height))
             p2 = (int(landmarks[end_idx].x * width), int(landmarks[end_idx].y * height))
             cv2.line(frame, p1, p2, (95, 205, 255), 2)
 
-        for idx, landmark in enumerate(landmarks):
+        for idx in self.render_indices:
+            if idx >= len(landmarks):
+                continue
+            landmark = landmarks[idx]
             x = int(landmark.x * width)
             y = int(landmark.y * height)
             if x < 0 or y < 0 or x >= width or y >= height:
@@ -264,7 +279,7 @@ class PoseEngine:
             color = (255, 220, 80)
             if idx in (11, 12, 23, 24):
                 color = (60, 255, 120)
-            cv2.circle(frame, (x, y), 4, color, -1)
+            cv2.circle(frame, (x, y), 3, color, -1)
 
     def _landmarks_to_sequence(self, landmarks):
         if len(landmarks) < 25:
@@ -344,6 +359,18 @@ class PoseEngine:
 
         return action, {"label": pred_label, "conf": pred_conf}
 
+    def _consume_action_once(self, action: str, debug: dict) -> str:
+        if action == "none":
+            if debug.get("label") == "idle":
+                self.latched_action = "none"
+            return "none"
+
+        if self.latched_action == action:
+            return "none"
+
+        self.latched_action = action
+        return action
+
     def _is_visible(self, landmark, min_visibility: float = 0.5) -> bool:
         visibility = getattr(landmark, "visibility", 1.0)
         return visibility >= min_visibility
@@ -412,8 +439,12 @@ class PoseEngine:
 
             frame = cv2.flip(frame, 1)
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
-            landmarks = self._detect_landmarks(rgb)
+            self.frame_count += 1
+            if self.frame_count % 2 == 0:
+                landmarks = self._detect_landmarks(rgb)
+                self.last_landmarks = landmarks
+            else:
+                landmarks = self.last_landmarks
             action = "none"
             clap_event = False
             debug = {"label": "idle", "conf": 0.0}
@@ -421,6 +452,7 @@ class PoseEngine:
             if landmarks is not None:
                 self._draw_landmarks(frame, landmarks)
                 action, debug = self._extract_action(landmarks)
+                action = self._consume_action_once(action, debug)
                 if action in self.last_press:
                     self._press_key(action, time.time())
                 clap_event = self._detect_clap_event(landmarks)
@@ -465,7 +497,7 @@ class PoseEngine:
                     cv2.LINE_AA,
                 )
 
-            ok, encoded = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 72])
+            ok, encoded = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, self.stream_jpeg_quality])
             if not ok:
                 return self._make_error_frame("Gagal encode frame video.")
             return encoded.tobytes()
@@ -592,7 +624,7 @@ def video_feed():
         while True:
             frame = engine.get_frame()
             yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + frame + b"\r\n"
-            time.sleep(0.01)
+            time.sleep(engine.stream_frame_interval)
 
     return Response(generate(), mimetype="multipart/x-mixed-replace; boundary=frame")
 
