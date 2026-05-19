@@ -90,7 +90,7 @@ class PoseEngine:
         self.lock = threading.Lock()
         self.pause_key = "esc"
         self.last_press = {"up": 0.0, "down": 0.0, "left": 0.0, "right": 0.0, self.pause_key: 0.0}
-        self.cooldown = 0.25
+        self.cooldown = 0.12
         self.pause_cooldown = 0.9
         self.clap_is_closed = False
         self.controls_enabled = keyboard_controller is not None
@@ -118,11 +118,12 @@ class PoseEngine:
         self.down_action_conf_threshold = 0.88
         self.down_margin_vs_idle = 0.20
         self.down_min_stable_frames = 4
-        self.min_stable_frames = 5
+        self.min_stable_frames = 2
         self.side_action_conf_threshold = 0.92
         self.side_margin_vs_idle = 0.26
-        self.side_min_stable_frames = 6
-        self.prob_smoother = deque(maxlen=5)
+        self.side_min_stable_frames = 3
+        self.prob_smoother = deque(maxlen=3)
+        self.detect_width = 384
         self.last_pred_label = "idle"
         self.last_pred_conf = 0.0
         self.stable_label = "idle"
@@ -201,6 +202,7 @@ class PoseEngine:
         if cap.isOpened():
             cap.set(cv2.CAP_PROP_FRAME_WIDTH, 960)
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 540)
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
             self.cap = cap
         else:
             self.cap = None
@@ -387,6 +389,11 @@ class PoseEngine:
         if self.landmarker is None:
             return None
 
+        height, width = frame_rgb.shape[:2]
+        if width > self.detect_width:
+            detect_height = max(1, int(height * (self.detect_width / width)))
+            frame_rgb = cv2.resize(frame_rgb, (self.detect_width, detect_height), interpolation=cv2.INTER_LINEAR)
+
         image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_rgb)
         result = self.landmarker.detect(image)
         if not result.pose_landmarks:
@@ -458,7 +465,7 @@ class PoseEngine:
                     cv2.LINE_AA,
                 )
 
-            ok, encoded = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 82])
+            ok, encoded = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 72])
             if not ok:
                 return self._make_error_frame("Gagal encode frame video.")
             return encoded.tobytes()
@@ -585,7 +592,7 @@ def video_feed():
         while True:
             frame = engine.get_frame()
             yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + frame + b"\r\n"
-            time.sleep(0.02)
+            time.sleep(0.01)
 
     return Response(generate(), mimetype="multipart/x-mixed-replace; boundary=frame")
 
