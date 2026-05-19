@@ -63,3 +63,4 @@ Output training tersimpan di `models/lstm_pose/`:
 - `metrics.json`
 - `classification_report.txt`
 - `confusion_matrix_test.png`
+- `training_validation_curves.png` (diagram train vs validation untuk cek overfitting)

@@ -14,6 +14,39 @@ from sklearn.metrics import classification_report, confusion_matrix, f1_score
 from torch.utils.data import DataLoader, TensorDataset
 
 
+def build_pose_detector():
+    pose_solutions = getattr(getattr(mp, "solutions", None), "pose", None)
+    if pose_solutions is not None:
+        detector = pose_solutions.Pose(
+            static_image_mode=True,
+            model_complexity=1,
+            min_detection_confidence=0.5,
+        )
+        return detector, "solutions"
+
+    from mediapipe.tasks import python as mp_python
+    from mediapipe.tasks.python import vision
+
+    model_path = Path("models") / "pose_landmarker_full.task"
+    if not model_path.exists():
+        raise FileNotFoundError(
+            f"Model MediaPipe Tasks tidak ditemukan di {model_path.resolve()}. "
+            "Jalankan app.py sekali untuk mengunduh model atau letakkan file model tersebut."
+        )
+
+    options = vision.PoseLandmarkerOptions(
+        base_options=mp_python.BaseOptions(model_asset_path=str(model_path)),
+        running_mode=vision.RunningMode.IMAGE,
+        num_poses=1,
+        min_pose_detection_confidence=0.5,
+        min_pose_presence_confidence=0.5,
+        min_tracking_confidence=0.5,
+        output_segmentation_masks=False,
+    )
+    detector = vision.PoseLandmarker.create_from_options(options)
+    return detector, "tasks"
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Train model LSTM (PyTorch) untuk klasifikasi pose dari gambar menggunakan landmark MediaPipe."
@@ -40,17 +73,24 @@ def get_class_names(train_dir: Path) -> list[str]:
     return classes
 
 
-def extract_landmark_sequence(image_path: Path, pose_detector) -> np.ndarray | None:
+def extract_landmark_sequence(image_path: Path, pose_detector, detector_kind: str) -> np.ndarray | None:
     image_bgr = cv2.imread(str(image_path))
     if image_bgr is None:
         return None
 
     image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
-    result = pose_detector.process(image_rgb)
-    if not result.pose_landmarks:
-        return None
+    if detector_kind == "solutions":
+        result = pose_detector.process(image_rgb)
+        if not result.pose_landmarks:
+            return None
+        lm = result.pose_landmarks.landmark
+    else:
+        image = mp.Image(image_format=mp.ImageFormat.SRGB, data=image_rgb)
+        result = pose_detector.detect(image)
+        if not result.pose_landmarks:
+            return None
+        lm = result.pose_landmarks[0]
 
-    lm = result.pose_landmarks.landmark
     seq = np.array([[p.x, p.y, p.z, p.visibility] for p in lm], dtype=np.float32)  # (33,4)
 
     # Normalisasi agar model fokus ke gerakan, bukan posisi absolut di kamera.
@@ -62,7 +102,7 @@ def extract_landmark_sequence(image_path: Path, pose_detector) -> np.ndarray | N
 
 
 def load_split(
-    split_dir: Path, class_to_idx: dict[str, int], pose_detector
+    split_dir: Path, class_to_idx: dict[str, int], pose_detector, detector_kind: str
 ) -> tuple[np.ndarray, np.ndarray]:
     x_data: list[np.ndarray] = []
     y_data: list[int] = []
@@ -74,7 +114,7 @@ def load_split(
 
         image_paths = sorted([*class_dir.glob("*.jpg"), *class_dir.glob("*.jpeg"), *class_dir.glob("*.png")])
         for image_path in image_paths:
-            seq = extract_landmark_sequence(image_path, pose_detector)
+            seq = extract_landmark_sequence(image_path, pose_detector, detector_kind)
             if seq is None:
                 continue
             x_data.append(seq)
@@ -185,6 +225,33 @@ def save_confusion_matrix(
     plt.close(fig)
 
 
+def save_training_curves(history: dict[str, list[float]], output_path: Path) -> None:
+    epochs = range(1, len(history["train_loss"]) + 1)
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4.8))
+
+    axes[0].plot(epochs, history["train_loss"], label="Train Loss", color="#1f77b4", linewidth=2.0)
+    axes[0].plot(epochs, history["val_loss"], label="Validation Loss", color="#ff7f0e", linewidth=2.0)
+    axes[0].set_title("Loss per Epoch")
+    axes[0].set_xlabel("Epoch")
+    axes[0].set_ylabel("Loss")
+    axes[0].grid(alpha=0.25)
+    axes[0].legend()
+
+    axes[1].plot(epochs, history["train_acc"], label="Train Accuracy", color="#2ca02c", linewidth=2.0)
+    axes[1].plot(epochs, history["val_acc"], label="Validation Accuracy", color="#d62728", linewidth=2.0)
+    axes[1].set_title("Accuracy per Epoch")
+    axes[1].set_xlabel("Epoch")
+    axes[1].set_ylabel("Accuracy")
+    axes[1].grid(alpha=0.25)
+    axes[1].legend()
+
+    fig.suptitle("Training vs Validation Curves", fontsize=12)
+    fig.tight_layout()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(output_path, dpi=170)
+    plt.close(fig)
+
+
 def main() -> None:
     args = parse_args()
     set_seed(args.seed)
@@ -198,15 +265,15 @@ def main() -> None:
     class_to_idx = {name: i for i, name in enumerate(class_names)}
     print("Class mapping:", class_to_idx)
 
-    mp_pose = mp.solutions.pose
-    with mp_pose.Pose(
-        static_image_mode=True,
-        model_complexity=1,
-        min_detection_confidence=0.5,
-    ) as pose_detector:
-        x_train, y_train = load_split(train_dir, class_to_idx, pose_detector)
-        x_val, y_val = load_split(val_dir, class_to_idx, pose_detector)
-        x_test, y_test = load_split(test_dir, class_to_idx, pose_detector)
+    pose_detector, detector_kind = build_pose_detector()
+    try:
+        x_train, y_train = load_split(train_dir, class_to_idx, pose_detector, detector_kind)
+        x_val, y_val = load_split(val_dir, class_to_idx, pose_detector, detector_kind)
+        x_test, y_test = load_split(test_dir, class_to_idx, pose_detector, detector_kind)
+    finally:
+        close_fn = getattr(pose_detector, "close", None)
+        if callable(close_fn):
+            close_fn()
 
     print(
         "Loaded samples:",
@@ -311,6 +378,7 @@ def main() -> None:
     print(report)
 
     save_confusion_matrix(y_true, y_pred, class_names, args.output_dir / "confusion_matrix_test.png")
+    save_training_curves(history, args.output_dir / "training_validation_curves.png")
 
     metrics_json = {
         "test_loss": float(test_loss),
@@ -335,6 +403,9 @@ def main() -> None:
     print(f"Metrics JSON       : {(args.output_dir / 'metrics.json').resolve()}")
     print(
         f"Confusion matrix   : {(args.output_dir / 'confusion_matrix_test.png').resolve()}"
+    )
+    print(
+        f"Train/Val Curves   : {(args.output_dir / 'training_validation_curves.png').resolve()}"
     )
 
 
