@@ -52,9 +52,10 @@ def parse_args() -> argparse.Namespace:
         description="Train model LSTM (PyTorch) untuk klasifikasi pose dari gambar menggunakan landmark MediaPipe."
     )
     parser.add_argument("--data-dir", type=Path, default=Path("dataset_split"))
-    parser.add_argument("--epochs", type=int, default=35)
-    parser.add_argument("--batch-size", type=int, default=16)
-    parser.add_argument("--learning-rate", type=float, default=1e-3)
+    parser.add_argument("--epochs", type=int, default=50)
+    parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--learning-rate", type=float, default=0.0005)
+    parser.add_argument("--patience", type=int, default=12)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--output-dir", type=Path, default=Path("models/lstm_pose"))
     return parser.parse_args()
@@ -289,11 +290,17 @@ def main() -> None:
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
     test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False)
--*
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = PoseLSTM(input_size=4, hidden_size=96, num_layers=2, num_classes=len(class_names)).to(device)
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer,
+        mode="min",
+        factor=0.5,
+        patience=3,
+        min_lr=0.000001,
+    )
 
     history: dict[str, list[float]] = {
         "train_loss": [],
@@ -305,7 +312,7 @@ def main() -> None:
     best_val_acc = -1.0
     best_state = None
     best_model_path = args.output_dir / "best_model.pth"
-    patience = 8
+    patience = args.patience
     no_improve_epochs = 0
 
     for epoch in range(1, args.epochs + 1):
@@ -338,11 +345,14 @@ def main() -> None:
         history["train_acc"].append(train_acc)
         history["val_loss"].append(val_loss)
         history["val_acc"].append(val_acc)
+        scheduler.step(val_loss)
+        current_lr = optimizer.param_groups[0]["lr"]
 
         print(
             f"Epoch {epoch:02d}/{args.epochs} | "
             f"train_loss={train_loss:.4f} train_acc={train_acc:.4f} | "
-            f"val_loss={val_loss:.4f} val_acc={val_acc:.4f}"
+            f"val_loss={val_loss:.4f} val_acc={val_acc:.4f} | "
+            f"lr={current_lr:.6f}"
         )
 
         if val_acc > best_val_acc:

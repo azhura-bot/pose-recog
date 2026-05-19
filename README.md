@@ -39,6 +39,32 @@ Catatan:
 - Fokuskan jendela browser/game agar input keyboard dari `pyautogui` masuk ke game.
 - Jika `pyautogui` belum ter-install atau gagal di environment tertentu, landmark tetap berjalan tapi kontrol keyboard nonaktif.
 
+## Akses Dari Internet (Ngrok)
+
+Jalankan backend dulu:
+
+```bash
+python app.py
+```
+
+Di terminal lain, jalankan ngrok ke port Flask (`5000`):
+
+```bash
+ngrok http 127.0.0.1:5000
+```
+
+Ngrok akan menampilkan URL publik, misalnya:
+- `https://xxxx-xxxx.ngrok-free.dev`
+
+Gunakan URL berikut untuk game:
+- `https://xxxx-xxxx.ngrok-free.dev/game`
+
+Tips:
+- Dashboard lokal ngrok: `http://127.0.0.1:4040`
+- Stop ngrok: tekan `Ctrl + C` di terminal ngrok.
+- Kamera yang dipakai halaman `/game` adalah **kamera device yang membuka URL** (browser client), bukan kamera server.
+- Pastikan akses lewat `https` (ngrok sudah https) agar izin kamera browser bisa aktif.
+
 ## Training Deep Learning (LSTM)
 
 Pipeline training ini menggunakan:
@@ -55,7 +81,7 @@ python split_dataset.py --input-dir dataset --output-dir dataset_split --train-r
 ### 2) Training + evaluasi
 
 ```bash
-python train_lstm_pose.py --data-dir dataset_split --epochs 30 --batch-size 16 --learning-rate 0.001 --output-dir models/lstm_pose
+python train_lstm_pose.py --data-dir dataset_split --epochs 50 --batch-size 32 --learning-rate 0.0005 --patience 12 --output-dir models/lstm_pose
 ```
 
 Output training tersimpan di `models/lstm_pose/`:

@@ -1,4 +1,5 @@
 import atexit
+import base64
 import json
 import threading
 import time
@@ -9,7 +10,7 @@ from pathlib import Path
 import cv2
 import mediapipe as mp
 import numpy as np
-from flask import Flask, Response, jsonify, send_from_directory
+from flask import Flask, Response, jsonify, request, send_from_directory
 
 keyboard_controller = None
 keyboard_backend = None
@@ -112,12 +113,15 @@ class PoseEngine:
         }
         self.pose_classifier = None
         self.class_names = ["down", "idle", "left", "right", "up"]
-        self.action_conf_threshold = 0.80
-        self.non_idle_margin_vs_idle = 0.12
+        self.action_conf_threshold = 0.88
+        self.non_idle_margin_vs_idle = 0.18
         self.down_action_conf_threshold = 0.88
         self.down_margin_vs_idle = 0.20
         self.down_min_stable_frames = 4
-        self.min_stable_frames = 3
+        self.min_stable_frames = 5
+        self.side_action_conf_threshold = 0.92
+        self.side_margin_vs_idle = 0.26
+        self.side_min_stable_frames = 6
         self.prob_smoother = deque(maxlen=5)
         self.last_pred_label = "idle"
         self.last_pred_conf = 0.0
@@ -321,6 +325,11 @@ class PoseEngine:
                 required_conf = self.down_action_conf_threshold
                 required_margin = self.down_margin_vs_idle
                 required_stable = self.down_min_stable_frames
+            elif pred_label in ("left", "right"):
+                # Kelas lateral sering false-positive saat user diam, jadi dibuat lebih ketat.
+                required_conf = self.side_action_conf_threshold
+                required_margin = self.side_margin_vs_idle
+                required_stable = self.side_min_stable_frames
 
             is_confident = pred_conf >= required_conf
             beats_idle = (pred_conf - idle_conf) >= required_margin
@@ -414,60 +423,14 @@ class PoseEngine:
                 self.clap_is_closed = False
                 self.prob_smoother.clear()
 
+            display_action = action.upper() if action != "none" else "IDLE"
             cv2.putText(
                 frame,
-                f"Action: {action.upper()}",
+                f"{display_action} | {debug['conf']:.2f}",
                 (18, 36),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                1.0,
-                (50, 255, 130),
-                2,
-                cv2.LINE_AA,
-            )
-
-            if self.controls_enabled:
-                control_state = f"ON ({self.controls_backend})"
-            else:
-                control_state = "OFF (keyboard backend unavailable)"
-            cv2.putText(
-                frame,
-                f"Keyboard Control: {control_state}",
-                (18, 68),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.7,
-                (190, 230, 255),
-                2,
-                cv2.LINE_AA,
-            )
-            if self.controls_error:
-                cv2.putText(
-                    frame,
-                    "Keyboard error: cek /health",
-                    (18, 164),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.62,
-                    (0, 170, 255),
-                    2,
-                    cv2.LINE_AA,
-                )
-            clap_state = "DETECTED" if clap_event else ("HOLD" if self.clap_is_closed else "READY")
-            cv2.putText(
-                frame,
-                f"Clap => {self.pause_key.upper()}: {clap_state}",
-                (18, 100),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.7,
-                (255, 220, 120),
-                2,
-                cv2.LINE_AA,
-            )
-            cv2.putText(
-                frame,
-                f"LSTM: {debug['label']} ({debug['conf']:.2f})",
-                (18, 132),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.65,
-                (160, 200, 255),
+                0.9,
+                (80, 255, 160),
                 2,
                 cv2.LINE_AA,
             )
@@ -512,6 +475,44 @@ class PoseEngine:
                     # Can happen on interpreter shutdown when thread pool is already closed.
                     pass
 
+    def predict_from_client_frame(self, frame_bgr: np.ndarray) -> dict:
+        with self.lock:
+            rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+            landmarks = self._detect_landmarks(rgb)
+            action = "none"
+            debug = {"label": "idle", "conf": 0.0}
+            clap_event = False
+            landmark_points = []
+            landmark_edges = []
+
+            if landmarks is not None:
+                action, debug = self._extract_action(landmarks)
+                clap_event = self._detect_clap_event(landmarks)
+                landmark_points = [
+                    {
+                        "x": float(lm.x),
+                        "y": float(lm.y),
+                        "visibility": float(getattr(lm, "visibility", 1.0)),
+                    }
+                    for lm in landmarks
+                ]
+                landmark_edges = [
+                    {"start": int(conn.start), "end": int(conn.end)}
+                    for conn in self.pose_connections
+                ]
+            else:
+                self.clap_is_closed = False
+                self.prob_smoother.clear()
+
+            return {
+                "action": action,
+                "debug": {"label": debug["label"], "conf": float(debug["conf"])},
+                "clap_event": bool(clap_event),
+                "has_landmarks": landmarks is not None,
+                "landmarks": landmark_points,
+                "landmark_edges": landmark_edges,
+            }
+
 
 engine = PoseEngine(camera_index=0)
 atexit.register(engine.close)
@@ -552,6 +553,30 @@ def health():
             "error": engine.init_error,
         }
     )
+
+
+@app.post("/predict_pose")
+def predict_pose():
+    payload = request.get_json(silent=True) or {}
+    image_data = payload.get("image")
+    if not isinstance(image_data, str) or not image_data:
+        return jsonify({"error": "Field 'image' wajib diisi (base64 data URL)."}), 400
+
+    if "," in image_data:
+        image_data = image_data.split(",", 1)[1]
+
+    try:
+        image_bytes = base64.b64decode(image_data, validate=True)
+    except Exception:
+        return jsonify({"error": "Format base64 image tidak valid."}), 400
+
+    np_buffer = np.frombuffer(image_bytes, dtype=np.uint8)
+    frame_bgr = cv2.imdecode(np_buffer, cv2.IMREAD_COLOR)
+    if frame_bgr is None:
+        return jsonify({"error": "Gagal decode image."}), 400
+
+    result = engine.predict_from_client_frame(frame_bgr)
+    return jsonify({"status": "ok", **result})
 
 
 @app.get("/video_feed")
