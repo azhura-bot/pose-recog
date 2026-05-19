@@ -289,7 +289,7 @@ def main() -> None:
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
     test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False)
-
+-*
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = PoseLSTM(input_size=4, hidden_size=96, num_layers=2, num_classes=len(class_names)).to(device)
     criterion = nn.CrossEntropyLoss()
