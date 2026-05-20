@@ -462,18 +462,6 @@ class PoseEngine:
                 self.clap_is_closed = False
                 self.prob_smoother.clear()
 
-            display_action = action.upper() if action != "none" else "IDLE"
-            cv2.putText(
-                frame,
-                f"{display_action} | {debug['conf']:.2f}",
-                (18, 36),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.9,
-                (80, 255, 160),
-                2,
-                cv2.LINE_AA,
-            )
-
             if self.init_error:
                 cv2.putText(
                     frame,
