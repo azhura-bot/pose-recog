@@ -3,11 +3,17 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Pose Runner - Subway Surfers dengan Pose Recognition</title>
-  <meta name="description" content="Mainkan game gaya Subway Surfers langsung dari browser dengan kontrol pose recognition berbasis Python backend." />
+  <title>Pose Runner - Runner Online dengan Pose Recognition</title>
+  <meta
+    name="description"
+    content="Mainkan runner berbasis pose recognition langsung dari browser. Siap di-deploy ke Vercel atau Netlify tanpa backend lokal."
+  />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Manrope:wght@400;600;700;800&display=swap"
+    rel="stylesheet"
+  />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -25,11 +31,12 @@
     <section class="hero">
       <div class="hero-grid">
         <div class="hero-copy reveal">
-          <p class="eyebrow">Subway Surfers x Computer Vision</p>
+          <p class="eyebrow">Browser Runner x Computer Vision</p>
           <h1>Gerakkan badanmu,<br />bukan tombol keyboard</h1>
           <p class="lead">
-            Website ini menghadirkan pengalaman bermain seperti Subway Surfers dengan kontrol pose recognition.
-            Kamera membaca gerakan tubuhmu untuk berlari, lompat, dan menghindar secara real-time.
+            Website ini menghadirkan game runner online dengan kontrol pose recognition.
+            Kamera membaca gerakan tubuhmu untuk bergerak kiri, kanan, lompat, dan slide secara
+            real-time.
           </p>
           <div class="hero-actions">
             <a href="game.html" class="btn btn-primary">Mulai Bermain</a>
@@ -38,7 +45,7 @@
           <ul class="stats">
             <li><strong>Real-time</strong><span>Pose Detection</span></li>
             <li><strong>Web-based</strong><span>Tanpa Install Game</span></li>
-            <li><strong>Python Ready</strong><span>Integrasi Backend</span></li>
+            <li><strong>Deploy Ready</strong><span>Vercel & Netlify</span></li>
           </ul>
         </div>
 
@@ -79,15 +86,15 @@
     <section id="cara-kerja" class="features">
       <article class="card reveal">
         <h2>1. Buka Kamera</h2>
-        <p>Sistem mengambil frame kamera dan mengirim data posisi tubuh ke engine pengenal pose.</p>
+        <p>Browser membuka kamera, lalu MediaPipe Web memproses pose langsung di perangkat pengguna.</p>
       </article>
       <article class="card reveal">
         <h2>2. Deteksi Gerakan</h2>
-        <p>Pose seperti condong kiri, condong kanan, atau lompatan diterjemahkan jadi aksi karakter.</p>
+        <p>Gestur seperti tangan kiri naik, tangan kanan naik, kedua tangan naik, atau jongkok diterjemahkan jadi aksi karakter.</p>
       </article>
       <article class="card reveal">
         <h2>3. Mainkan Game</h2>
-        <p>Kontrol game terasa lebih imersif karena kamu bermain dengan gerakan tubuh secara langsung.</p>
+        <p>Karena game dan pose engine berjalan di browser, orang lain bisa ikut main langsung dari link deploy.</p>
       </article>
     </section>
 
@@ -104,7 +111,7 @@
   </main>
 
   <footer class="site-footer">
-    <p>© 2026 Ujang Kedu</p>
+    <p>&copy; 2026 Ujang Kedu</p>
   </footer>
 
   <script src="script.js"></script>

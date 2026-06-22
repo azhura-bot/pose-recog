@@ -1,0 +1,9 @@
+.git
+.venv
+__pycache__
+dataset
+dataset_aug
+dataset_split
+models
+*.py
+requirements.txt

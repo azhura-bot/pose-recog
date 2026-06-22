@@ -1,93 +1,93 @@
-# Pose Runner (HTML/CSS/JS + Python Backend)
+# Pose Runner
 
-Project ini berisi:
-- Landing page frontend (`index.html`)
-- Halaman game 2 panel (`game.html`):
-  - Kiri: iframe game
-  - Kanan: stream kamera real-time dengan landmark pose (MediaPipe)
-- Backend Python (`app.py`) untuk pose recognition dan kontrol keyboard (`pyautogui`)
+`Pose Runner` sekarang punya 2 mode:
 
-## Setup
+- `Mode online`: full client-side, siap deploy ke Vercel atau Netlify.
+- `Mode legacy`: frontend HTML + backend Python lokal untuk eksperimen lama.
+
+## Mode online
+
+Mode ini adalah jalur paling realistis kalau project ingin dimainkan orang lain lewat link.
+
+Karakteristik:
+
+- Game runner berjalan di browser lewat `canvas`
+- Pose detection memakai `MediaPipe Tasks Vision` di browser
+- Kamera diproses di perangkat user, bukan di server
+- Tidak perlu `Flask`, `pyautogui`, atau `127.0.0.1`
+
+File utama:
+
+- `index.html`
+- `game.html`
+- `game-online.js`
+- `styles.css`
+- `script.js`
+
+### Deploy ke Vercel
+
+1. Push repo ke GitHub.
+2. Import repo ke Vercel.
+3. Framework preset pilih `Other`.
+4. Tidak perlu build command.
+5. Output directory kosongkan atau isi `.`
+6. Deploy.
+
+Catatan:
+
+- File `.vercelignore` sudah dibuat agar dataset, model, dan file Python tidak ikut ter-upload.
+- Camera API butuh `https`, dan Vercel sudah memenuhi itu.
+
+### Deploy ke Netlify
+
+1. Push repo ke GitHub.
+2. Import repo ke Netlify.
+3. Build command kosong.
+4. Publish directory isi `.`
+5. Deploy.
+
+Catatan:
+
+- `netlify.toml` sudah disiapkan untuk publish root statis.
+- File `.netlifyignore` mengecualikan aset training yang tidak dibutuhkan online.
+
+### Mapping pose online
+
+- Tangan kiri naik -> `kiri`
+- Tangan kanan naik -> `kanan`
+- Kedua tangan naik -> `lompat`
+- Jongkok -> `slide`
+
+Fallback keyboard:
+
+- `ArrowLeft`
+- `ArrowRight`
+- `ArrowUp`
+- `ArrowDown`
+
+## Mode legacy Python
+
+Mode lama masih relevan kalau kamu memang ingin eksperimen lokal dengan:
+
+- `Flask`
+- stream `video_feed`
+- kontrol keyboard berbasis `pyautogui` / `pydirectinput`
+
+Setup:
 
 ```bash
 python -m venv .venv
-.venv\\Scripts\\activate
+.venv\Scripts\activate
 pip install -r requirements.txt
-```
-
-## Jalankan
-
-```bash
 python app.py
 ```
 
 Buka:
-- `http://127.0.0.1:5000/` (landing page)
-- `http://127.0.0.1:5000/game` (halaman game + stream pose)
 
-Saat startup pertama, backend akan mengunduh model `pose_landmarker_full.task` ke folder `models/`.
+- `http://127.0.0.1:5000/`
+- `http://127.0.0.1:5000/game`
 
-## Pose Mapping (default)
+Catatan penting:
 
-- Geser badan ke kiri -> `Left`
-- Geser badan ke kanan -> `Right`
-- Jongkok -> `Down` (slide)
-- Lompat -> `Up` (jump)
-- Tepuk tangan (kedua tangan saling mendekat di depan badan) -> `Esc` (pause/resume)
-
-Catatan:
-- Fokuskan jendela browser/game agar input keyboard dari `pyautogui` masuk ke game.
-- Jika `pyautogui` belum ter-install atau gagal di environment tertentu, landmark tetap berjalan tapi kontrol keyboard nonaktif.
-
-## Training Deep Learning (LSTM)
-
-Pipeline training ini menggunakan:
-- Landmark pose dari MediaPipe (tiap gambar jadi urutan 33 titik)
-- Model `LSTM` berbasis PyTorch
-- Split data `train/val/test` secara stratified per kelas
-
-### 1) Split dataset
-
-```bash
-python split_dataset.py --input-dir dataset_aug --output-dir dataset_split --train-ratio 0.7 --val-ratio 0.15 --test-ratio 0.15 --seed 42 --overwrite
-```
-
-### (Opsional) Augment brightness/contrast dulu
-
-Untuk menambah variasi kondisi terang/gelap sebelum split:
-
-```bash
-python augment_dataset.py --input-dir dataset --output-dir dataset_aug --variants-per-image 2 --seed 42 --overwrite
-```
-
-Lalu split dari dataset hasil augment:
-
-```bash
-python split_dataset.py --input-dir dataset_aug --output-dir dataset_split --train-ratio 0.7 --val-ratio 0.15 --test-ratio 0.15 --seed 42 --overwrite
-```
-
-### 2) Training + evaluasi
-
-```bash
-python train_lstm_pose.py --data-dir dataset_split --epochs 50 --batch-size 32 --learning-rate 0.0005 --patience 12 --output-dir models/lstm_pose
-```
-
-Output training tersimpan di `models/lstm_pose/`:
-- `best_model.pth`
-- `metrics.json`
-- `classification_report.txt`
-- `confusion_matrix_test.png`
-- `training_validation_curves.png` (diagram train vs validation untuk cek overfitting)
-
-### 3) Ringkasan evaluasi siap presentasi
-
-Untuk membuat ringkasan yang mudah dibaca dosen (indikasi overfitting/underfitting + grafik metrik per kelas):
-
-```bash
-python evaluate_results.py --metrics models/lstm_pose/metrics.json --classification-report models/lstm_pose/classification_report.txt --output-dir models/lstm_pose
-```
-
-Output tambahan:
-- `evaluation_summary.md` (ringkasan metrik + diagnosis fitting)
-- `evaluation_summary.json` (format data terstruktur)
-- `per_class_metrics_test.png` (bar chart precision/recall/F1 per kelas)
+- Mode legacy tidak cocok untuk deploy ke Vercel/Netlify.
+- Masalah utamanya adalah kontrol game dilakukan dari backend lokal, bukan dari browser user.

@@ -1,9 +1,19 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="id">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Pose Runner - Halaman Permainan</title>
+  <title>Pose Runner - Main Online</title>
+  <meta
+    name="description"
+    content="Mainkan runner berbasis pose recognition langsung dari browser. Tidak perlu backend lokal."
+  />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Manrope:wght@400;600;700;800&display=swap"
+    rel="stylesheet"
+  />
   <link rel="stylesheet" href="styles.css" />
   <style>
     body {
@@ -11,9 +21,11 @@
     }
 
     .play-page {
-      max-width: 1400px;
+      max-width: 1380px;
       margin: 0 auto;
       padding: 20px;
+      position: relative;
+      z-index: 1;
     }
 
     .topbar {
@@ -28,51 +40,204 @@
     .topbar h1 {
       margin: 0;
       font-family: "Bebas Neue", sans-serif;
-      font-size: clamp(2rem, 4vw, 3rem);
+      font-size: clamp(2.1rem, 4vw, 3.25rem);
       letter-spacing: 1px;
       line-height: 1;
     }
 
     .hint {
       color: #b0bfd6;
-      margin: 0;
-      font-size: 0.95rem;
+      margin: 8px 0 0;
+      font-size: 0.98rem;
+      max-width: 720px;
+      line-height: 1.6;
     }
 
     .layout {
       display: grid;
-      grid-template-columns: minmax(0, 2fr) minmax(360px, 1fr);
+      grid-template-columns: minmax(0, 1.55fr) minmax(360px, 0.95fr);
       gap: 16px;
       align-items: start;
     }
 
     .panel {
       border: 1px solid rgba(255, 255, 255, 0.16);
-      background: linear-gradient(160deg, #101b2f, #132440);
-      border-radius: 18px;
-      padding: 14px;
+      background: linear-gradient(160deg, rgba(16, 27, 47, 0.96), rgba(19, 36, 64, 0.96));
+      border-radius: 22px;
+      padding: 16px;
+      box-shadow:
+        0 18px 34px rgba(0, 0, 0, 0.24),
+        inset 0 0 18px rgba(42, 209, 255, 0.05);
     }
 
     .panel-title {
-      margin: 0 0 10px;
-      font-size: 1rem;
+      margin: 0 0 12px;
+      font-size: 0.95rem;
       color: #b0bfd6;
       text-transform: uppercase;
       letter-spacing: 0.08em;
     }
 
-    .subway-frame {
-      width: 100%;
-      height: 70vh;
-      min-height: 520px;
-      border: 0;
-      border-radius: 12px;
-      background: #000;
+    .game-shell {
+      position: relative;
+      border-radius: 18px;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background:
+        radial-gradient(circle at 50% 0%, rgba(42, 209, 255, 0.16), transparent 40%),
+        linear-gradient(180deg, #09111e, #050913 72%);
+      min-height: 620px;
     }
 
-    .video-wrap {
+    #runnerCanvas {
+      width: 100%;
+      height: min(72vh, 760px);
+      min-height: 620px;
+      display: block;
+    }
+
+    .game-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      pointer-events: none;
+      padding: 18px;
+    }
+
+    .hud {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .scoreboard,
+    .status-chip {
+      background: rgba(8, 17, 31, 0.7);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: 16px;
+      padding: 12px 14px;
+      backdrop-filter: blur(10px);
+    }
+
+    .scoreboard {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .score-item {
+      min-width: 74px;
+    }
+
+    .score-item span {
+      display: block;
+      font-size: 0.75rem;
+      color: #b0bfd6;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .score-item strong {
+      display: block;
+      margin-top: 4px;
+      font-size: 1.45rem;
+      line-height: 1;
+    }
+
+    .status-chip {
+      max-width: 260px;
+    }
+
+    .status-chip span {
+      display: block;
+      color: #b0bfd6;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 4px;
+    }
+
+    .status-chip strong {
+      font-size: 1rem;
+      line-height: 1.35;
+    }
+
+    .game-banner {
+      align-self: center;
+      max-width: 520px;
+      width: 100%;
+      text-align: center;
+      background: rgba(8, 17, 31, 0.82);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: 20px;
+      padding: 22px 20px;
+      pointer-events: auto;
+      backdrop-filter: blur(10px);
+    }
+
+    .game-banner[hidden] {
+      display: none;
+    }
+
+    .game-banner h2 {
+      margin: 0;
+      font-family: "Bebas Neue", sans-serif;
+      letter-spacing: 1px;
+      font-size: clamp(2rem, 4vw, 3rem);
+    }
+
+    .game-banner p {
+      margin: 12px 0 0;
+      color: #d7e3f6;
+      line-height: 1.6;
+    }
+
+    .banner-actions {
+      margin-top: 18px;
+      display: flex;
+      justify-content: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .banner-actions button,
+    .back {
+      appearance: none;
+      border: 0;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      text-decoration: none;
+      font-weight: 800;
+      padding: 11px 18px;
+      border-radius: 999px;
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .banner-actions button:hover,
+    .back:hover {
+      transform: translateY(-2px);
+    }
+
+    .banner-actions button {
+      background: linear-gradient(120deg, #f7b32b, #ffd978);
+      color: #1d1605;
+      box-shadow: 0 10px 24px rgba(247, 179, 43, 0.28);
+    }
+
+    .back {
+      color: #08111f;
+      background: #6fffb0;
+    }
+
+    .camera-stage {
       position: relative;
-      border-radius: 12px;
+      border-radius: 16px;
       overflow: hidden;
       background: #000;
       min-height: 520px;
@@ -80,121 +245,230 @@
       place-items: center;
     }
 
-    #poseStream {
+    #cameraVideo,
+    #poseCanvas {
       width: 100%;
-      height: 70vh;
+      height: min(62vh, 680px);
       min-height: 520px;
-      object-fit: cover;
       display: block;
+      object-fit: cover;
+      background: #000;
+      transform: scaleX(-1);
     }
 
-    #cameraStatus {
+    #poseCanvas {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background: transparent;
+    }
+
+    .camera-status {
       position: absolute;
       top: 10px;
       right: 10px;
       margin: 0;
-      background: rgba(8, 17, 31, 0.55);
+      background: rgba(8, 17, 31, 0.58);
       border: 1px solid rgba(255, 255, 255, 0.14);
       border-radius: 10px;
       padding: 6px 9px;
       color: #eaf2ff;
-      font-size: 0.78rem;
-      line-height: 1.2;
-      max-width: 260px;
+      font-size: 0.8rem;
+      line-height: 1.3;
+      max-width: 280px;
       text-align: right;
     }
 
-    .back {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      text-decoration: none;
-      color: #08111f;
-      background: #6fffb0;
-      font-weight: 800;
-      padding: 10px 16px;
-      border-radius: 999px;
+    .pose-info {
+      margin-top: 14px;
+      display: grid;
+      gap: 12px;
     }
 
-    @media (max-width: 1100px) {
+    .action-badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .badge {
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 999px;
+      padding: 9px 12px;
+      color: #d7e3f6;
+      background: rgba(255, 255, 255, 0.04);
+      font-size: 0.92rem;
+      font-weight: 700;
+    }
+
+    .badge.active {
+      color: #08111f;
+      background: #6fffb0;
+      border-color: transparent;
+    }
+
+    .pose-card {
+      border-radius: 16px;
+      padding: 14px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .pose-card h3 {
+      margin: 0 0 8px;
+      font-size: 0.88rem;
+      color: #b0bfd6;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .pose-card p,
+    .pose-card ul {
+      margin: 0;
+      color: #d7e3f6;
+      line-height: 1.6;
+    }
+
+    .pose-card ul {
+      padding-left: 18px;
+    }
+
+    @media (max-width: 1120px) {
       .layout {
         grid-template-columns: 1fr;
       }
 
-      .subway-frame,
-      #poseStream,
-      .video-wrap {
-        height: 58vh;
+      #runnerCanvas,
+      #cameraVideo,
+      #poseCanvas,
+      .camera-stage {
         min-height: 420px;
       }
     }
 
-    @media (max-width: 680px) {
+    @media (max-width: 720px) {
       .play-page {
         padding: 16px;
       }
 
-      .subway-frame,
-      #poseStream,
-      .video-wrap {
+      .scoreboard {
+        width: 100%;
+      }
+
+      .status-chip {
+        max-width: none;
+        width: 100%;
+      }
+
+      #runnerCanvas,
+      #cameraVideo,
+      #poseCanvas,
+      .camera-stage {
         min-height: 320px;
+        height: 54vh;
       }
     }
   </style>
 </head>
 <body>
+  <div class="bg-grid"></div>
+  <div class="bg-orb orb-a"></div>
+  <div class="bg-orb orb-b"></div>
+  <div class="cursor-glow" aria-hidden="true"></div>
+
   <section class="play-page">
     <div class="topbar">
       <div>
-        <h1>Mode Bermain</h1>
-        <p class="hint">Kontrol pose: geser badan kiri/kanan, jongkok, lompat. Tepuk tangan = tombol ESC (pause/resume).</p>
+        <h1>Mode Bermain Online</h1>
+        <p class="hint">
+          Versi ini berjalan penuh di browser. Tidak perlu backend Python, jadi aman untuk deploy di
+          Vercel atau Netlify. Kontrol default: tangan kiri naik = kiri, tangan kanan naik = kanan,
+          kedua tangan naik = lompat, jongkok = slide.
+        </p>
       </div>
       <a href="index.html" class="back">Kembali ke Landing Page</a>
     </div>
 
     <div class="layout">
       <article class="panel">
-        <h2 class="panel-title">Subway Surfers (CodeSandbox Preview)</h2>
-        <iframe
-          class="subway-frame"
-          src="https://codesandbox.io/embed/ly4fsf?view=preview"
-          title="Subway Surfers"
-          allow="accelerometer; ambient-light-sensor; camera; encrypted-media; geolocation; gyroscope; hid; microphone; midi; payment; usb; vr; xr-spatial-tracking"
-          sandbox="allow-forms allow-modals allow-popups allow-presentation allow-same-origin allow-scripts"
-          scrolling="no"
-          allowfullscreen
-        ></iframe>
+        <h2 class="panel-title">Runner Game Lokal</h2>
+        <div class="game-shell">
+          <canvas id="runnerCanvas" width="960" height="720" aria-label="Runner game"></canvas>
+
+          <div class="game-overlay">
+            <div class="hud">
+              <div class="scoreboard">
+                <div class="score-item">
+                  <span>Score</span>
+                  <strong id="scoreValue">0</strong>
+                </div>
+                <div class="score-item">
+                  <span>Best</span>
+                  <strong id="bestValue">0</strong>
+                </div>
+                <div class="score-item">
+                  <span>Speed</span>
+                  <strong id="speedValue">1.0x</strong>
+                </div>
+              </div>
+
+              <div class="status-chip">
+                <span>Status Game</span>
+                <strong id="gameStatus">Siap bermain. Izinkan kamera lalu tekan mulai.</strong>
+              </div>
+            </div>
+
+            <div class="game-banner" id="gameBanner">
+              <h2>Pose Runner Online</h2>
+              <p id="bannerText">
+                Ini versi deployable. Semua logika game dan pose berjalan di browser pengguna, jadi
+                orang lain bisa main langsung tanpa setup lokal.
+              </p>
+              <div class="banner-actions">
+                <button id="startButton" type="button">Izinkan Kamera & Mulai</button>
+              </div>
+            </div>
+          </div>
+        </div>
       </article>
 
       <article class="panel">
-        <h2 class="panel-title">Video Real-time + Landmark</h2>
-        <div class="video-wrap">
-          <img id="poseStream" alt="Pose stream dengan landmark MediaPipe" />
-          <p id="cameraStatus">Menghubungkan stream backend...</p>
+        <h2 class="panel-title">Kamera + Pose Detection</h2>
+        <div class="camera-stage">
+          <video id="cameraVideo" autoplay playsinline muted></video>
+          <canvas id="poseCanvas" width="640" height="480"></canvas>
+          <p class="camera-status" id="cameraStatus">
+            Kamera belum aktif. Tekan tombol mulai untuk meminta izin browser.
+          </p>
+        </div>
+
+        <div class="pose-info">
+          <div class="action-badges">
+            <span class="badge" data-action="left">Kiri</span>
+            <span class="badge" data-action="right">Kanan</span>
+            <span class="badge" data-action="jump">Lompat</span>
+            <span class="badge" data-action="slide">Slide</span>
+          </div>
+
+          <div class="pose-card">
+            <h3>Pose Terdeteksi</h3>
+            <p id="poseStatus">Belum ada pose yang diproses.</p>
+          </div>
+
+          <div class="pose-card">
+            <h3>Catatan Deploy</h3>
+            <ul>
+              <li>Hosting ini statis, jadi cocok untuk Vercel dan Netlify.</li>
+              <li>Model pose di-load dari CDN resmi saat halaman dibuka.</li>
+              <li>Fallback keyboard tetap tersedia: panah kiri/kanan/atas/bawah.</li>
+            </ul>
+          </div>
         </div>
       </article>
     </div>
   </section>
 
-  <script>
-    const poseStream = document.getElementById("poseStream");
-    const cameraStatus = document.getElementById("cameraStatus");
-    const backendBase = "http://127.0.0.1:5000";
-
-    function connectPoseStream() {
-      const streamUrl = `${backendBase}/video_feed?t=${Date.now()}`;
-      poseStream.src = streamUrl;
-    }
-
-    poseStream.addEventListener("load", () => {
-      cameraStatus.textContent = "Stream aktif";
-    });
-
-    poseStream.addEventListener("error", () => {
-      cameraStatus.textContent = "Gagal memuat stream. Pastikan backend python berjalan di 127.0.0.1:5000.";
-    });
-
-    connectPoseStream();
-  </script>
+  <script src="script.js"></script>
+  <script type="module" src="game-online.js"></script>
 </body>
 </html>
