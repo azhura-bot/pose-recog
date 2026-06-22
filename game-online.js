@@ -42,6 +42,7 @@ let animationFrameId = 0;
 let visionReady = false;
 let gameStarted = false;
 let lastVideoTime = -1;
+let lastPoseTimestampMs = -1;
 let baselineTorso = 0;
 let activeBadgeTimer = 0;
 let FilesetResolverLib = null;
@@ -294,6 +295,8 @@ function resumeGame() {
 function restartGame() {
   gameState.running = true;
   gameState.over = false;
+  lastVideoTime = -1;
+  lastPoseTimestampMs = -1;
   gameState.score = 0;
   gameState.speed = 360;
   gameState.lane = 1;
@@ -347,7 +350,20 @@ function processPoseFrame(timestamp) {
   if (lastVideoTime === video.currentTime) return;
 
   lastVideoTime = video.currentTime;
-  const result = poseLandmarker.detectForVideo(video, timestamp);
+  const mediaTimestampMs = Math.round(video.currentTime * 1000);
+  const safeTimestampMs = Math.max(lastPoseTimestampMs + 1, mediaTimestampMs, Math.round(timestamp));
+  lastPoseTimestampMs = safeTimestampMs;
+
+  let result;
+  try {
+    result = poseLandmarker.detectForVideo(video, safeTimestampMs);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    cameraStatus.textContent = `Pose engine error: ${message}`;
+    updatePoseStatus("Frame pose dilewati karena timestamp tidak valid. Sistem akan mencoba lanjut.");
+    return;
+  }
+
   drawPose(result);
 
   const landmarks = result.landmarks?.[0];
