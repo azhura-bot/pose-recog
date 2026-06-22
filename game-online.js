@@ -1,13 +1,7 @@
 const MODEL_ASSET_URL =
   "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task";
-const VISION_MODULE_URLS = [
-  "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/+esm",
-  "https://unpkg.com/@mediapipe/tasks-vision@0.10.22/+esm",
-];
-const VISION_WASM_ROOTS = [
-  "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm",
-  "https://unpkg.com/@mediapipe/tasks-vision@0.10.22/wasm",
-];
+const VISION_MODULE_URL = "./vendor/mediapipe/tasks-vision/vision_bundle.mjs";
+const VISION_WASM_ROOT = "./vendor/mediapipe/tasks-vision/wasm";
 
 const video = document.getElementById("cameraVideo");
 const poseCanvas = document.getElementById("poseCanvas");
@@ -180,31 +174,29 @@ async function setupPoseLandmarker() {
   await ensureVisionModule();
 
   let lastError = null;
-  for (const wasmRoot of VISION_WASM_ROOTS) {
-    try {
-      const vision = await FilesetResolverLib.forVisionTasks(wasmRoot);
+  try {
+    const vision = await FilesetResolverLib.forVisionTasks(VISION_WASM_ROOT);
 
-      poseLandmarker = await PoseLandmarkerLib.createFromOptions(vision, {
-        baseOptions: {
-          modelAssetPath: MODEL_ASSET_URL,
-        },
-        runningMode: "VIDEO",
-        numPoses: 1,
-        minPoseDetectionConfidence: 0.55,
-        minPosePresenceConfidence: 0.55,
-        minTrackingConfidence: 0.55,
-      });
+    poseLandmarker = await PoseLandmarkerLib.createFromOptions(vision, {
+      baseOptions: {
+        modelAssetPath: MODEL_ASSET_URL,
+      },
+      runningMode: "VIDEO",
+      numPoses: 1,
+      minPoseDetectionConfidence: 0.55,
+      minPosePresenceConfidence: 0.55,
+      minTrackingConfidence: 0.55,
+    });
 
-      visionReady = true;
-      cameraStatus.textContent = "Model pose siap. Meminta akses kamera...";
-      return;
-    } catch (error) {
-      lastError = error;
-    }
+    visionReady = true;
+    cameraStatus.textContent = "Model pose siap. Meminta akses kamera...";
+    return;
+  } catch (error) {
+    lastError = error;
   }
 
   throw new Error(
-    `Gagal memuat MediaPipe WebAssembly. ${lastError instanceof Error ? lastError.message : ""}`.trim()
+    `Gagal memuat MediaPipe WebAssembly lokal. ${lastError instanceof Error ? lastError.message : ""}`.trim()
   );
 }
 
@@ -242,26 +234,19 @@ async function ensureVisionModule() {
     return;
   }
 
-  let lastError = null;
-  for (const moduleUrl of VISION_MODULE_URLS) {
-    try {
-      const visionModule = await import(moduleUrl);
-      FilesetResolverLib = visionModule.FilesetResolver;
-      PoseLandmarkerLib = visionModule.PoseLandmarker;
-
-      if (!FilesetResolverLib || !PoseLandmarkerLib) {
-        throw new Error("Ekspor MediaPipe tidak lengkap.");
-      }
-
-      return;
-    } catch (error) {
-      lastError = error;
-    }
+  try {
+    const visionModule = await import(VISION_MODULE_URL);
+    FilesetResolverLib = visionModule.FilesetResolver;
+    PoseLandmarkerLib = visionModule.PoseLandmarker;
+  } catch (error) {
+    throw new Error(
+      `Gagal memuat modul MediaPipe lokal. ${error instanceof Error ? error.message : ""}`.trim()
+    );
   }
 
-  throw new Error(
-    `Gagal memuat modul MediaPipe dari CDN. ${lastError instanceof Error ? lastError.message : ""}`.trim()
-  );
+  if (!FilesetResolverLib || !PoseLandmarkerLib) {
+    throw new Error("Ekspor MediaPipe lokal tidak lengkap.");
+  }
 }
 
 function resizeCanvases() {

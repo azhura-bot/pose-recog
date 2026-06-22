@@ -13,6 +13,7 @@ Karakteristik:
 
 - Game runner berjalan di browser lewat `canvas`
 - Pose detection memakai `MediaPipe Tasks Vision` di browser
+- Bundle MediaPipe Web di-host dari file lokal project agar tidak bergantung pada CDN saat runtime
 - Kamera diproses di perangkat user, bukan di server
 - Tidak perlu `Flask`, `pyautogui`, atau `127.0.0.1`
 
