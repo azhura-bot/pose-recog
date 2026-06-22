@@ -1,10 +1,13 @@
-import {
-  FilesetResolver,
-  PoseLandmarker,
-} from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/+esm";
-
 const MODEL_ASSET_URL =
   "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task";
+const VISION_MODULE_URLS = [
+  "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/+esm",
+  "https://unpkg.com/@mediapipe/tasks-vision@0.10.22/+esm",
+];
+const VISION_WASM_ROOTS = [
+  "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm",
+  "https://unpkg.com/@mediapipe/tasks-vision@0.10.22/wasm",
+];
 
 const video = document.getElementById("cameraVideo");
 const poseCanvas = document.getElementById("poseCanvas");
@@ -47,6 +50,8 @@ let gameStarted = false;
 let lastVideoTime = -1;
 let baselineTorso = 0;
 let activeBadgeTimer = 0;
+let FilesetResolverLib = null;
+let PoseLandmarkerLib = null;
 
 const inputState = {
   lastAction: "idle",
@@ -84,6 +89,28 @@ bestValue.textContent = String(gameState.best);
 resizeCanvases();
 seedStars();
 drawGame(performance.now());
+cameraStatus.textContent = "Engine browser siap. Tekan mulai untuk memuat model dan meminta izin kamera.";
+updatePoseStatus("Menunggu aktivasi kamera.");
+updateGameStatus("Siap bermain. Tombol akan memulai kamera dan pose engine.");
+
+window.addEventListener("error", (event) => {
+  const message = event.error?.message || event.message || "Terjadi error yang tidak dikenal.";
+  cameraStatus.textContent = `Error runtime: ${message}`;
+  bannerText.textContent =
+    "Terjadi error saat menjalankan game di browser. Coba refresh, lalu tekan mulai lagi.";
+  startButton.disabled = false;
+  startButton.textContent = "Coba Lagi";
+});
+
+window.addEventListener("unhandledrejection", (event) => {
+  const reason =
+    event.reason instanceof Error ? event.reason.message : String(event.reason || "Promise gagal.");
+  cameraStatus.textContent = `Promise gagal: ${reason}`;
+  bannerText.textContent =
+    "Browser gagal memuat modul pose atau akses kamera. Cek koneksi internet dan izin kamera.";
+  startButton.disabled = false;
+  startButton.textContent = "Coba Lagi";
+});
 
 window.addEventListener("resize", () => {
   resizeCanvases();
@@ -150,26 +177,46 @@ window.addEventListener("keydown", (event) => {
 async function setupPoseLandmarker() {
   cameraStatus.textContent = "Mengunduh model pose...";
 
-  const vision = await FilesetResolver.forVisionTasks(
-    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm"
+  await ensureVisionModule();
+
+  let lastError = null;
+  for (const wasmRoot of VISION_WASM_ROOTS) {
+    try {
+      const vision = await FilesetResolverLib.forVisionTasks(wasmRoot);
+
+      poseLandmarker = await PoseLandmarkerLib.createFromOptions(vision, {
+        baseOptions: {
+          modelAssetPath: MODEL_ASSET_URL,
+        },
+        runningMode: "VIDEO",
+        numPoses: 1,
+        minPoseDetectionConfidence: 0.55,
+        minPosePresenceConfidence: 0.55,
+        minTrackingConfidence: 0.55,
+      });
+
+      visionReady = true;
+      cameraStatus.textContent = "Model pose siap. Meminta akses kamera...";
+      return;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw new Error(
+    `Gagal memuat MediaPipe WebAssembly. ${lastError instanceof Error ? lastError.message : ""}`.trim()
   );
-
-  poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
-    baseOptions: {
-      modelAssetPath: MODEL_ASSET_URL,
-    },
-    runningMode: "VIDEO",
-    numPoses: 1,
-    minPoseDetectionConfidence: 0.55,
-    minPosePresenceConfidence: 0.55,
-    minTrackingConfidence: 0.55,
-  });
-
-  visionReady = true;
-  cameraStatus.textContent = "Model pose siap. Meminta akses kamera...";
 }
 
 async function setupCamera() {
+  if (!window.isSecureContext) {
+    throw new Error("Kamera browser hanya bisa dipakai di context HTTPS atau localhost.");
+  }
+
+  if (!navigator.mediaDevices?.getUserMedia) {
+    throw new Error("Browser ini tidak mendukung getUserMedia untuk akses kamera.");
+  }
+
   webcamStream = await navigator.mediaDevices.getUserMedia({
     video: {
       facingMode: "user",
@@ -188,6 +235,33 @@ async function setupCamera() {
   });
 
   cameraStatus.textContent = "Kamera aktif. Menunggu pose...";
+}
+
+async function ensureVisionModule() {
+  if (FilesetResolverLib && PoseLandmarkerLib) {
+    return;
+  }
+
+  let lastError = null;
+  for (const moduleUrl of VISION_MODULE_URLS) {
+    try {
+      const visionModule = await import(moduleUrl);
+      FilesetResolverLib = visionModule.FilesetResolver;
+      PoseLandmarkerLib = visionModule.PoseLandmarker;
+
+      if (!FilesetResolverLib || !PoseLandmarkerLib) {
+        throw new Error("Ekspor MediaPipe tidak lengkap.");
+      }
+
+      return;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw new Error(
+    `Gagal memuat modul MediaPipe dari CDN. ${lastError instanceof Error ? lastError.message : ""}`.trim()
+  );
 }
 
 function resizeCanvases() {
